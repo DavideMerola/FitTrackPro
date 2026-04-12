@@ -1,0 +1,1283 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Meta tag fondamentali per iOS e per evitare lo zoom/pinch -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <title>FitTrack Pro</title>
+
+    <!-- Tailwind CSS (Framework stabile per lo stile) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              dark: "#0f172a", // slate-900
+              card: "#1e293b", // slate-800
+              accent: "#10b981", // emerald-500
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- React & ReactDOM (Core stabili) -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+    <!-- Babel (per compilare JSX nel browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      /* Regole extra per migliorare l'esperienza touch */
+      body {
+        background-color: #0f172a;
+        color: #f8fafc;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: pan-y; /* Permette solo lo scroll verticale, fondamentale per lo swipe */
+        overflow-x: hidden;
+      }
+      /* Nascondi scrollbar per un look più pulito */
+      ::-webkit-scrollbar {
+        width: 0px;
+        background: transparent;
+      }
+
+      .safe-bottom {
+        padding-bottom: env(safe-area-inset-bottom, 20px);
+      }
+      .safe-top {
+        padding-top: env(safe-area-inset-top, 20px);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo } = React;
+
+      // --- DATI INIZIALI E COSTANTI ---
+      const MUSCLE_GROUPS = [
+        "Petto",
+        "Dorso",
+        "Schiena Alta",
+        "Quadricipiti",
+        "Femorali",
+        "Adduttori",
+        "Deltoide anteriore",
+        "Deltoide Laterale",
+        "Deltoide Posteriore",
+        "Bicipiti",
+        "Tricipiti",
+        "Addome",
+        "Polpacci",
+        "Glutei",
+      ];
+
+      // Abbreviazioni per la barra del volume
+      const MUSCLE_ABBR = {
+        Petto: "Pet",
+        Dorso: "Dor",
+        "Schiena Alta": "Sch.A",
+        Quadricipiti: "Quad",
+        Femorali: "Fem",
+        Adduttori: "Addut",
+        "Deltoide anteriore": "D.Ant",
+        "Deltoide Laterale": "D.Lat",
+        "Deltoide Posteriore": "D.Pos",
+        Bicipiti: "Bic",
+        Tricipiti: "Tri",
+        Addome: "Add",
+        Polpacci: "Pol",
+        Glutei: "Glu",
+      };
+
+      // Landmark di Volume (Riferimento Serie Settimanali Generiche per Ipertrofia)
+      const VOLUME_LANDMARKS = {
+        Petto: { mev: "8-10", mav: "12-20", mrv: "22+" },
+        Dorso: { mev: "10", mav: "14-22", mrv: "25+" },
+        "Schiena Alta": { mev: "10", mav: "14-22", mrv: "25+" },
+        Quadricipiti: { mev: "8", mav: "12-18", mrv: "20+" },
+        Femorali: { mev: "6", mav: "10-16", mrv: "20+" },
+        Adduttori: { mev: "6", mav: "10-14", mrv: "18+" },
+        "Deltoide anteriore": { mev: "0-6", mav: "6-10", mrv: "12+" },
+        "Deltoide Laterale": { mev: "8", mav: "16-22", mrv: "26+" },
+        "Deltoide Posteriore": { mev: "8", mav: "14-20", mrv: "24+" },
+        Bicipiti: { mev: "8", mav: "14-20", mrv: "26+" },
+        Tricipiti: { mev: "6", mav: "10-14", mrv: "18+" },
+        Addome: { mev: "0-2", mav: "16-20", mrv: "25+" },
+        Polpacci: { mev: "8", mav: "12-16", mrv: "20+" },
+        Glutei: { mev: "0-4", mav: "4-12", mrv: "16+" },
+      };
+
+      const INITIAL_STATE = {
+        routines: {
+          A: { id: "A", name: "Scheda A", exercises: [] },
+          B: { id: "B", name: "Scheda B", exercises: [] },
+          C: { id: "C", name: "Scheda C", exercises: [] }, // Aggiunta Scheda C
+        },
+        history: [],
+      };
+
+      // --- ICONE SVG ---
+      const Icons = {
+        Menu: () => (
+          <svg
+            width="24"
+            height="24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        ),
+        Plus: () => (
+          <svg
+            width="24"
+            height="24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        ),
+        Close: () => (
+          <svg
+            width="24"
+            height="24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        ),
+        Video: () => (
+          <svg
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+          </svg>
+        ),
+        Trash: () => (
+          <svg
+            width="20"
+            height="20"
+            fill="none"
+            stroke="#fff"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        ),
+        Check: () => (
+          <svg
+            width="24"
+            height="24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        ),
+        Grip: () => (
+          <svg
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="9" cy="12" r="1"></circle>
+            <circle cx="9" cy="5" r="1"></circle>
+            <circle cx="9" cy="19" r="1"></circle>
+            <circle cx="15" cy="12" r="1"></circle>
+            <circle cx="15" cy="5" r="1"></circle>
+            <circle cx="15" cy="19" r="1"></circle>
+          </svg>
+        ),
+      };
+
+      // --- COMPONENTE PRINCIPALE ---
+      function App() {
+        // Inizializzazione con Local Storage
+        const [data, setData] = useState(() => {
+          const savedData = localStorage.getItem("fitTrackData");
+          if (savedData) {
+            try {
+              const parsed = JSON.parse(savedData);
+              // Compatibilità retroattiva per chi non aveva la scheda C
+              if (!parsed.routines["C"]) {
+                parsed.routines["C"] = {
+                  id: "C",
+                  name: "Scheda C",
+                  exercises: [],
+                };
+              }
+              return parsed;
+            } catch (e) {
+              console.error("Errore lettura dati salvati", e);
+            }
+          }
+          return INITIAL_STATE;
+        });
+
+        const [activeRoutineId, setActiveRoutineId] = useState("A");
+        const [currentView, setCurrentView] = useState("routine");
+        const [isMenuOpen, setIsMenuOpen] = useState(false);
+        const [isModalOpen, setIsModalOpen] = useState(false);
+        const [editingExercise, setEditingExercise] = useState(null);
+
+        // Stato Drag and Drop
+        const [draggedIdx, setDraggedIdx] = useState(null);
+
+        // Salvataggio automatico ad ogni modifica dei dati
+        useEffect(() => {
+          localStorage.setItem("fitTrackData", JSON.stringify(data));
+        }, [data]);
+
+        // Data odierna formattata
+        const todayStr = useMemo(() => {
+          const options = { weekday: "long", day: "numeric", month: "long" };
+          let str = new Intl.DateTimeFormat("it-IT", options).format(
+            new Date(),
+          );
+          return str.charAt(0).toUpperCase() + str.slice(1);
+        }, []);
+
+        // --- CALCOLO VOLUME ATTUALE ---
+        const currentVolume = useMemo(() => {
+          const stats = { primary: {}, secondary: {} };
+          const routine = data.routines[activeRoutineId];
+          if (!routine) return stats;
+
+          routine.exercises.forEach((ex) => {
+            const setsNum = parseInt(ex.sets, 10) || 0;
+            if (setsNum > 0) {
+              // Volume Principale
+              if (!stats.primary[ex.primaryMuscle])
+                stats.primary[ex.primaryMuscle] = 0;
+              stats.primary[ex.primaryMuscle] += setsNum;
+
+              // Volume Multiarticolare / Coinvolti
+              if (ex.secondaryMuscles && ex.secondaryMuscles.length > 0) {
+                ex.secondaryMuscles.forEach((sm) => {
+                  if (!stats.secondary[sm]) stats.secondary[sm] = 0;
+                  stats.secondary[sm] += setsNum;
+                });
+              }
+            }
+          });
+          return stats;
+        }, [data, activeRoutineId]);
+
+        // --- GESTIONE ESERCIZI ---
+        const saveExercise = (exercise) => {
+          setData((prev) => {
+            const routine = prev.routines[activeRoutineId];
+            let newExercises = [...routine.exercises];
+
+            if (editingExercise) {
+              const index = newExercises.findIndex((e) => e.id === exercise.id);
+              if (index !== -1) newExercises[index] = exercise;
+            } else {
+              newExercises.push({ ...exercise, id: Date.now().toString() });
+            }
+
+            return {
+              ...prev,
+              routines: {
+                ...prev.routines,
+                [activeRoutineId]: { ...routine, exercises: newExercises },
+              },
+            };
+          });
+          setIsModalOpen(false);
+          setEditingExercise(null);
+        };
+
+        const deleteExercise = (id) => {
+          if (
+            !window.confirm("Sei sicuro di voler eliminare questo esercizio?")
+          )
+            return;
+
+          setData((prev) => {
+            const routine = prev.routines[activeRoutineId];
+            return {
+              ...prev,
+              routines: {
+                ...prev.routines,
+                [activeRoutineId]: {
+                  ...routine,
+                  exercises: routine.exercises.filter((e) => e.id !== id),
+                },
+              },
+            };
+          });
+        };
+
+        const openEditModal = (exercise = null) => {
+          setEditingExercise(exercise);
+          setIsModalOpen(true);
+        };
+
+        // --- GESTIONE DRAG & DROP ---
+        const handleDragStart = (e, index) => {
+          setDraggedIdx(index);
+          setTimeout(() => {
+            if (e.target) e.target.style.opacity = "0.4";
+          }, 0);
+        };
+        const handleDragOver = (e) => e.preventDefault();
+        const handleDragEnd = (e) => {
+          if (e.target) e.target.style.opacity = "1";
+          setDraggedIdx(null);
+        };
+        const handleDrop = (e, dropIdx) => {
+          e.preventDefault();
+          if (e.target) e.target.style.opacity = "1";
+          if (draggedIdx === null || draggedIdx === dropIdx) return;
+
+          setData((prev) => {
+            const routine = prev.routines[activeRoutineId];
+            const newExercises = [...routine.exercises];
+            const [movedItem] = newExercises.splice(draggedIdx, 1);
+            newExercises.splice(dropIdx, 0, movedItem);
+            return {
+              ...prev,
+              routines: {
+                ...prev.routines,
+                [activeRoutineId]: { ...routine, exercises: newExercises },
+              },
+            };
+          });
+          setDraggedIdx(null);
+        };
+
+        // --- GESTIONE ALLENAMENTO ---
+        const finishWorkout = () => {
+          const currentRoutine = data.routines[activeRoutineId];
+          if (currentRoutine.exercises.length === 0)
+            return alert("Aggiungi degli esercizi prima di terminare!");
+          if (!confirm("Vuoi salvare questo allenamento nello storico?"))
+            return;
+
+          const workoutRecord = {
+            id: Date.now().toString(),
+            date: new Date().toISOString(),
+            dateStr: todayStr,
+            routineName: currentRoutine.name,
+            exercises: [...currentRoutine.exercises],
+          };
+
+          setData((prev) => ({
+            ...prev,
+            history: [workoutRecord, ...prev.history],
+          }));
+          setCurrentView("history");
+        };
+
+        // --- RESET STORICO ---
+        const resetHistory = () => {
+          if (
+            confirm(
+              "Sei sicuro di voler eliminare tutto lo storico allenamenti? L'azione è irreversibile e azzererà anche l'Analisi Muscolare.",
+            )
+          ) {
+            setData((prev) => ({ ...prev, history: [] }));
+          }
+        };
+
+        const activeRoutine = data.routines[activeRoutineId];
+
+        return (
+          <div className="h-screen w-full flex flex-col relative overflow-hidden text-sm sm:text-base">
+            {/* TOP BAR */}
+            <div className="bg-card safe-top border-b border-slate-700 flex justify-between items-center p-4 z-10 shadow-md">
+              <button
+                onClick={() => setIsMenuOpen(true)}
+                className="p-2 -ml-2 text-slate-300 hover:text-white"
+              >
+                <Icons.Menu />
+              </button>
+              <div className="text-center">
+                <h1 className="text-lg font-bold text-white tracking-wide">
+                  {currentView === "routine"
+                    ? activeRoutine.name
+                    : currentView === "history"
+                      ? "Storico Allenamenti"
+                      : currentView === "landmarks"
+                        ? "Landmark Volume"
+                        : "Analisi Muscolare"}
+                </h1>
+                <p className="text-xs text-accent font-medium">{todayStr}</p>
+              </div>
+              <div className="w-8"></div>
+            </div>
+
+            {/* MAIN CONTENT AREA */}
+            <div className="flex-1 overflow-y-auto p-4 pb-24 relative">
+              {/* VISTA: SCHEDA ATTUALE */}
+              {currentView === "routine" && (
+                <div className="space-y-3">
+                  {/* BARRA DEL VOLUME (Mostrata solo se ci sono esercizi) */}
+                  {(Object.keys(currentVolume.primary).length > 0 ||
+                    Object.keys(currentVolume.secondary).length > 0) && (
+                    <div className="flex flex-col gap-2 mb-1 p-3 bg-dark/60 rounded-xl border border-slate-700/50 shadow-inner">
+                      {/* Row: Principali */}
+                      {Object.keys(currentVolume.primary).length > 0 && (
+                        <div>
+                          <div className="w-full text-[10px] text-accent font-bold uppercase mb-1 px-1">
+                            Volume Principale (Serie)
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(currentVolume.primary).map(
+                              ([muscle, sets]) => (
+                                <div
+                                  key={`p-${muscle}`}
+                                  className="flex items-center bg-card px-2 py-1 rounded border border-slate-700/50 shadow-sm"
+                                >
+                                  <span className="text-slate-400 font-medium text-xs mr-1.5">
+                                    {MUSCLE_ABBR[muscle] || muscle}:
+                                  </span>
+                                  <span className="text-accent font-bold text-sm">
+                                    {sets}
+                                  </span>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Row: Multiarticolari */}
+                      {Object.keys(currentVolume.secondary).length > 0 && (
+                        <div className="mt-1">
+                          <div className="w-full text-[10px] text-slate-400 font-bold uppercase mb-1 px-1">
+                            Volume Multiarticolare
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(currentVolume.secondary).map(
+                              ([muscle, sets]) => (
+                                <div
+                                  key={`s-${muscle}`}
+                                  className="flex items-center bg-card px-2 py-1 rounded border border-slate-700/50 shadow-sm"
+                                >
+                                  <span className="text-slate-500 font-medium text-xs mr-1.5">
+                                    {MUSCLE_ABBR[muscle] || muscle}:
+                                  </span>
+                                  <span className="text-slate-300 font-bold text-sm">
+                                    {sets}
+                                  </span>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeRoutine.exercises.length === 0 ? (
+                    <div className="text-center text-slate-500 mt-10">
+                      <p>Nessun esercizio presente.</p>
+                      <p>Premi il tasto + per iniziare.</p>
+                    </div>
+                  ) : (
+                    activeRoutine.exercises.map((ex, idx) => (
+                      <ExerciseCard
+                        key={ex.id}
+                        ex={ex}
+                        idx={idx}
+                        onEdit={() => openEditModal(ex)}
+                        onDelete={() => deleteExercise(ex.id)}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                        onDragEnd={handleDragEnd}
+                      />
+                    ))
+                  )}
+
+                  {activeRoutine.exercises.length > 0 && (
+                    <button
+                      onClick={finishWorkout}
+                      className="w-full mt-6 bg-accent text-white font-bold py-3.5 rounded-xl shadow-lg flex items-center justify-center gap-2 active:bg-emerald-600 transition-colors"
+                    >
+                      <Icons.Check /> Termina Allenamento
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* VISTA: STORICO */}
+              {currentView === "history" && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center px-1">
+                    <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide">
+                      Cronologia
+                    </h2>
+                    {data.history.length > 0 && (
+                      <button
+                        onClick={resetHistory}
+                        className="text-[10px] uppercase font-bold tracking-wider bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg border border-red-500/20 active:bg-red-500/30"
+                      >
+                        Reset Storico
+                      </button>
+                    )}
+                  </div>
+                  {data.history.length === 0 ? (
+                    <p className="text-center text-slate-500 mt-10">
+                      Nessun allenamento salvato.
+                    </p>
+                  ) : (
+                    data.history.map((record) => (
+                      <div
+                        key={record.id}
+                        className="bg-card rounded-xl p-4 shadow-lg border border-slate-700/50"
+                      >
+                        <div className="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
+                          <h3 className="font-bold text-white">
+                            {record.dateStr}
+                          </h3>
+                          <span className="text-xs font-bold bg-slate-700 px-2 py-1 rounded text-accent">
+                            {record.routineName}
+                          </span>
+                        </div>
+                        <div className="text-sm text-slate-300 space-y-2">
+                          {record.exercises.map((ex, i) => (
+                            <div
+                              key={i}
+                              className="flex justify-between items-center bg-dark/50 p-2 rounded-lg border border-slate-700/30"
+                            >
+                              <div>
+                                <span className="font-semibold text-white block mb-0.5">
+                                  {ex.name}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {ex.sets}x{ex.reps} • Rec: {ex.rest}"
+                                </span>
+                              </div>
+                              <span className="text-accent font-bold whitespace-nowrap">
+                                {ex.weight} Kg
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* VISTA: ANALISI MUSCOLARE */}
+              {currentView === "analytics" && (
+                <AnalyticsView history={data.history} onReset={resetHistory} />
+              )}
+
+              {/* VISTA: LANDMARKS */}
+              {currentView === "landmarks" && <LandmarksView />}
+            </div>
+
+            {/* FLOATING ACTION BUTTON */}
+            {currentView === "routine" && (
+              <div className="absolute bottom-6 safe-bottom left-0 w-full flex justify-center pointer-events-none">
+                <button
+                  onClick={() => openEditModal()}
+                  className="pointer-events-auto bg-accent text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] active:scale-95 transition-transform"
+                >
+                  <Icons.Plus />
+                </button>
+              </div>
+            )}
+
+            {/* MENU LATERALE */}
+            {isMenuOpen && (
+              <div className="fixed inset-0 z-50 flex">
+                <div
+                  className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                  onClick={() => setIsMenuOpen(false)}
+                ></div>
+                <div className="w-4/5 max-w-sm bg-dark h-full relative flex flex-col shadow-2xl border-r border-slate-800">
+                  <div className="p-6 safe-top border-b border-slate-800 flex justify-between items-center">
+                    <h2 className="text-xl font-bold text-white">Menu</h2>
+                    <button
+                      onClick={() => setIsMenuOpen(false)}
+                      className="text-slate-400 p-2 -mr-2"
+                    >
+                      <Icons.Close />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto py-4">
+                    <div className="px-6 pb-2 text-xs font-bold text-slate-500 uppercase">
+                      Le tue Schede
+                    </div>
+                    <MenuButton
+                      label="Scheda A"
+                      active={
+                        currentView === "routine" && activeRoutineId === "A"
+                      }
+                      onClick={() => {
+                        setActiveRoutineId("A");
+                        setCurrentView("routine");
+                        setIsMenuOpen(false);
+                      }}
+                    />
+                    <MenuButton
+                      label="Scheda B"
+                      active={
+                        currentView === "routine" && activeRoutineId === "B"
+                      }
+                      onClick={() => {
+                        setActiveRoutineId("B");
+                        setCurrentView("routine");
+                        setIsMenuOpen(false);
+                      }}
+                    />
+                    <MenuButton
+                      label="Scheda C"
+                      active={
+                        currentView === "routine" && activeRoutineId === "C"
+                      }
+                      onClick={() => {
+                        setActiveRoutineId("C");
+                        setCurrentView("routine");
+                        setIsMenuOpen(false);
+                      }}
+                    />
+
+                    <div className="px-6 pt-6 pb-2 text-xs font-bold text-slate-500 uppercase">
+                      Progresso
+                    </div>
+                    <MenuButton
+                      label="Storico Allenamenti"
+                      active={currentView === "history"}
+                      onClick={() => {
+                        setCurrentView("history");
+                        setIsMenuOpen(false);
+                      }}
+                    />
+                    <MenuButton
+                      label="Analisi Muscolare"
+                      active={currentView === "analytics"}
+                      onClick={() => {
+                        setCurrentView("analytics");
+                        setIsMenuOpen(false);
+                      }}
+                    />
+
+                    <div className="px-6 pt-6 pb-2 text-xs font-bold text-slate-500 uppercase">
+                      Risorse
+                    </div>
+                    <MenuButton
+                      label="Landmark Volume"
+                      active={currentView === "landmarks"}
+                      onClick={() => {
+                        setCurrentView("landmarks");
+                        setIsMenuOpen(false);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODALE ESERCIZIO */}
+            {isModalOpen && (
+              <ExerciseFormModal
+                exercise={editingExercise}
+                onClose={() => setIsModalOpen(false)}
+                onSave={saveExercise}
+              />
+            )}
+          </div>
+        );
+      }
+
+      // --- SOTTO-COMPONENTI ---
+
+      function ExerciseCard({
+        ex,
+        idx,
+        onEdit,
+        onDelete,
+        onDragStart,
+        onDragOver,
+        onDrop,
+        onDragEnd,
+      }) {
+        const [swipeX, setSwipeX] = useState(0);
+
+        // GESTIONE SWIPE
+        const handleTouchStart = (e) => {
+          e.currentTarget.dataset.startX = e.touches[0].clientX;
+        };
+        const handleTouchMove = (e) => {
+          const startX = parseFloat(e.currentTarget.dataset.startX);
+          const diff = e.touches[0].clientX - startX;
+          if (diff < 0) setSwipeX(Math.max(diff, -80)); // Limite swipe verso sinistra
+        };
+        const handleTouchEnd = () => {
+          if (swipeX <= -60) {
+            onDelete(); // Tenta l'eliminazione
+            setSwipeX(0); // Rimbalza al suo posto in caso si scelga "Annulla"
+          } else {
+            setSwipeX(0); // Altrimenti rimbalza
+          }
+        };
+
+        return (
+          <div className="relative mb-2">
+            {/* Sfondo Eliminazione (Cestino) */}
+            <div className="absolute inset-0 bg-red-500 rounded-xl flex justify-end items-center px-5">
+              <Icons.Trash />
+            </div>
+
+            {/* Contenitore Esercizio Trascibabile e Swipabile */}
+            <div
+              draggable="true"
+              onDragStart={(e) => onDragStart(e, idx)}
+              onDragOver={(e) => onDragOver(e, idx)}
+              onDrop={(e) => onDrop(e, idx)}
+              onDragEnd={onDragEnd}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              style={{
+                transform: `translateX(${swipeX}px)`,
+                transition: swipeX === 0 ? "transform 0.2s ease-out" : "none",
+              }}
+              className="bg-card rounded-xl p-3 shadow-sm border border-slate-700/50 relative z-10 w-full flex items-center gap-2 touch-pan-y"
+            >
+              {/* Maniglia per il drag (Per avviare il drag su iOS bisogna tener premuto il box) */}
+              <div className="text-slate-500 cursor-grab px-1 shrink-0">
+                <Icons.Grip />
+              </div>
+
+              {/* Corpo della Card */}
+              <div className="flex-1 overflow-hidden" onClick={onEdit}>
+                <div className="flex justify-between items-center mb-1.5">
+                  <h3 className="font-bold text-base text-white truncate">
+                    {idx + 1}. {ex.name}
+                  </h3>
+                  {ex.video && (
+                    <a
+                      href={ex.video}
+                      target="_blank"
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-1 text-slate-400 hover:text-accent shrink-0"
+                    >
+                      <Icons.Video />
+                    </a>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-4 gap-1 mb-1.5 text-center items-end">
+                  <div className="bg-dark rounded py-1">
+                    <div className="text-[10px] text-slate-400 uppercase leading-none mb-0.5">
+                      Ser
+                    </div>
+                    <div className="font-semibold text-white text-sm leading-none">
+                      {ex.sets}
+                    </div>
+                  </div>
+                  <div className="bg-dark rounded py-1">
+                    <div className="text-[10px] text-slate-400 uppercase leading-none mb-0.5">
+                      Rep
+                    </div>
+                    <div className="font-semibold text-white text-sm leading-none">
+                      {ex.reps}
+                    </div>
+                  </div>
+                  <div className="bg-dark rounded py-1 relative">
+                    <div className="text-[10px] text-slate-400 uppercase leading-none mb-0.5">
+                      Kg
+                    </div>
+                    <div className="font-semibold text-white text-sm leading-none flex flex-col items-center justify-center">
+                      {ex.weight}
+                      {ex.weightDate && (
+                        <span className="text-[8px] text-accent/80 mt-0.5 leading-none absolute -bottom-3">
+                          ({ex.weightDate})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-dark rounded py-1">
+                    <div className="text-[10px] text-slate-400 uppercase leading-none mb-0.5">
+                      Rec
+                    </div>
+                    <div className="font-semibold text-white text-sm leading-none">
+                      {ex.rest}"
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1 text-[10px] items-center mt-3">
+                  <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded">
+                    Prin: {ex.primaryMuscle}
+                  </span>
+                  {ex.secondaryMuscles && ex.secondaryMuscles.length > 0 && (
+                    <span className="bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">
+                      Multi: {ex.secondaryMuscles.join(", ")}
+                    </span>
+                  )}
+                </div>
+                {ex.notes && (
+                  <div className="text-xs text-slate-400 italic mt-1.5 line-clamp-1">
+                    "{ex.notes}"
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function MenuButton({ label, active, onClick }) {
+        return (
+          <button
+            onClick={onClick}
+            className={`w-full text-left px-6 py-4 text-base transition-colors ${active ? "bg-card text-accent border-l-4 border-accent font-bold" : "text-slate-300 hover:bg-slate-800"}`}
+          >
+            {label}
+          </button>
+        );
+      }
+
+      function AnalyticsView({ history, onReset }) {
+        // Helper per ottenere il lunedì della settimana di una data
+        const getMonday = (d) => {
+          const date = new Date(d);
+          const day = date.getDay();
+          const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+          return new Date(date.setDate(diff));
+        };
+
+        const formatDate = (date) => {
+          return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+        };
+
+        // Raggruppa i volumi per settimana
+        const weeklyStats = useMemo(() => {
+          const weeks = {};
+          history.forEach((workout) => {
+            const mon = getMonday(workout.date);
+            const sun = new Date(mon);
+            sun.setDate(sun.getDate() + 6);
+            const weekLabel = `Sett. ${formatDate(mon)} - ${formatDate(sun)}`;
+
+            if (!weeks[weekLabel]) {
+              weeks[weekLabel] = {};
+              MUSCLE_GROUPS.forEach(
+                (m) => (weeks[weekLabel][m] = { primary: 0, secondary: 0 }),
+              );
+            }
+
+            workout.exercises.forEach((ex) => {
+              const setsNum = parseInt(ex.sets, 10) || 0;
+              if (weeks[weekLabel][ex.primaryMuscle])
+                weeks[weekLabel][ex.primaryMuscle].primary += setsNum;
+              if (ex.secondaryMuscles) {
+                ex.secondaryMuscles.forEach((sm) => {
+                  if (weeks[weekLabel][sm])
+                    weeks[weekLabel][sm].secondary += setsNum;
+                });
+              }
+            });
+          });
+          return weeks;
+        }, [history]);
+
+        return (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center bg-card rounded-xl p-3 border border-slate-700 shadow-md">
+              <span className="text-xs text-slate-300">
+                Totale <strong>Serie</strong> per settimana (Lun-Dom).
+              </span>
+              {history.length > 0 && (
+                <button
+                  onClick={onReset}
+                  className="text-[10px] uppercase font-bold tracking-wider bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg border border-red-500/20 active:bg-red-500/30"
+                >
+                  Reset Analisi
+                </button>
+              )}
+            </div>
+
+            {Object.keys(weeklyStats).length === 0 && (
+              <p className="text-center text-slate-500 mt-10">
+                Completa un allenamento per vedere le statistiche.
+              </p>
+            )}
+
+            {Object.entries(weeklyStats).map(([weekLabel, stats]) => (
+              <div key={weekLabel} className="space-y-3">
+                <h3 className="font-bold text-accent text-sm border-b border-slate-700 pb-1">
+                  {weekLabel}
+                </h3>
+                {MUSCLE_GROUPS.map((muscle) => {
+                  const s = stats[muscle];
+                  if (s.primary === 0 && s.secondary === 0) return null;
+                  return (
+                    <div
+                      key={muscle}
+                      className="bg-card rounded-xl p-3 shadow-md flex justify-between items-center border border-slate-700/30"
+                    >
+                      <span className="font-bold text-white text-base">
+                        {muscle}
+                      </span>
+                      <div className="text-right">
+                        <div className="text-accent text-sm font-bold">
+                          Prin: {s.primary} serie
+                        </div>
+                        {s.secondary > 0 && (
+                          <div className="text-slate-400 text-xs">
+                            Multi: {s.secondary} serie
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      function LandmarksView() {
+        return (
+          <div className="space-y-4">
+            <div className="bg-card rounded-xl p-4 border border-slate-700 shadow-md text-sm text-slate-300">
+              <h3 className="font-bold text-white mb-3 text-base">
+                Riferimenti Volume (Serie/Settimana)
+              </h3>
+              <ul className="space-y-2 text-xs">
+                <li>
+                  <span className="text-emerald-400 font-bold bg-emerald-400/10 px-1 py-0.5 rounded">
+                    MEV
+                  </span>{" "}
+                  <strong className="text-white">Minimo Efficace:</strong> Il
+                  volume minimo necessario per iniziare a crescere.
+                </li>
+                <li>
+                  <span className="text-blue-400 font-bold bg-blue-400/10 px-1 py-0.5 rounded">
+                    MAV
+                  </span>{" "}
+                  <strong className="text-white">Massimo Adattivo:</strong> Il
+                  range ottimale per la massima crescita ipertrofica.
+                </li>
+                <li>
+                  <span className="text-red-400 font-bold bg-red-400/10 px-1 py-0.5 rounded">
+                    MRV
+                  </span>{" "}
+                  <strong className="text-white">Massimo Recuperabile:</strong>{" "}
+                  La soglia limite oltre la quale il corpo non riesce a
+                  recuperare.
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-2">
+              {MUSCLE_GROUPS.map((muscle) => {
+                const lm = VOLUME_LANDMARKS[muscle];
+                if (!lm) return null;
+                return (
+                  <div
+                    key={muscle}
+                    className="bg-card rounded-xl p-3 shadow-md flex justify-between items-center border border-slate-700/30"
+                  >
+                    <span className="font-bold text-white text-sm">
+                      {muscle}
+                    </span>
+                    <div className="flex gap-4 text-xs text-center">
+                      <div className="w-10">
+                        <div className="text-emerald-400 font-bold">
+                          {lm.mev}
+                        </div>
+                        <div className="text-slate-500 text-[10px]">MEV</div>
+                      </div>
+                      <div className="w-10">
+                        <div className="text-blue-400 font-bold">{lm.mav}</div>
+                        <div className="text-slate-500 text-[10px]">MAV</div>
+                      </div>
+                      <div className="w-10">
+                        <div className="text-red-400 font-bold">{lm.mrv}</div>
+                        <div className="text-slate-500 text-[10px]">MRV</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      function ExerciseFormModal({ exercise, onClose, onSave }) {
+        const [formData, setFormData] = useState(
+          exercise || {
+            name: "",
+            sets: 4,
+            reps: "8-10",
+            weight: 0,
+            rest: 90,
+            notes: "",
+            video: "",
+            primaryMuscle: "Petto",
+            secondaryMuscles: [],
+            weightDate: "",
+          },
+        );
+
+        const handleChange = (e) => {
+          const { name, value } = e.target;
+          setFormData((prev) => ({ ...prev, [name]: value }));
+        };
+
+        const toggleSecondaryMuscle = (muscle) => {
+          setFormData((prev) => {
+            const list = prev.secondaryMuscles || [];
+            if (list.includes(muscle))
+              return {
+                ...prev,
+                secondaryMuscles: list.filter((m) => m !== muscle),
+              };
+            return { ...prev, secondaryMuscles: [...list, muscle] };
+          });
+        };
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!formData.name) return alert("Inserisci il nome dell'esercizio");
+
+          // Logica Data Peso: Se è nuovo, o se il peso è cambiato rispetto a prima, aggiorna la data
+          let finalDate = formData.weightDate;
+          if (
+            !exercise ||
+            String(exercise.weight) !== String(formData.weight) ||
+            !finalDate
+          ) {
+            const today = new Date();
+            finalDate = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}`;
+          }
+
+          onSave({ ...formData, weightDate: finalDate });
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+            <div
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={onClose}
+            ></div>
+            <div className="w-full sm:w-[400px] max-h-[90vh] bg-card rounded-t-3xl sm:rounded-3xl relative flex flex-col shadow-2xl border border-slate-700 transform transition-transform">
+              <div className="flex justify-between items-center p-4 border-b border-slate-700">
+                <h2 className="text-lg font-bold text-white">
+                  {exercise ? "Modifica" : "Nuovo Esercizio"}
+                </h2>
+                <button onClick={onClose} className="p-2 -mr-2 text-slate-400">
+                  <Icons.Close />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto p-4 safe-bottom">
+                <form
+                  id="exerciseForm"
+                  onSubmit={handleSubmit}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Nome Esercizio
+                    </label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleChange}
+                      placeholder="Es. Panca Piana"
+                      className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Serie
+                      </label>
+                      <input
+                        type="number"
+                        name="sets"
+                        value={formData.sets}
+                        onChange={handleChange}
+                        className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Ripetizioni
+                      </label>
+                      <input
+                        type="text"
+                        name="reps"
+                        value={formData.reps}
+                        onChange={handleChange}
+                        placeholder="Es. 8-10"
+                        className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Peso (Kg)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        name="weight"
+                        value={formData.weight}
+                        onChange={handleChange}
+                        className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Recupero (sec)
+                      </label>
+                      <input
+                        type="number"
+                        name="rest"
+                        value={formData.rest}
+                        onChange={handleChange}
+                        className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Muscolo Principale
+                    </label>
+                    <select
+                      name="primaryMuscle"
+                      value={formData.primaryMuscle}
+                      onChange={handleChange}
+                      className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none appearance-none"
+                    >
+                      {MUSCLE_GROUPS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-2">
+                      Muscoli Coinvolti (Opzionale)
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {MUSCLE_GROUPS.filter(
+                        (m) => m !== formData.primaryMuscle,
+                      ).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => toggleSecondaryMuscle(m)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${formData.secondaryMuscles.includes(m) ? "bg-slate-700 border-slate-500 text-white" : "bg-dark border-slate-800 text-slate-500"}`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Link Video (Opzionale)
+                    </label>
+                    <input
+                      type="url"
+                      name="video"
+                      value={formData.video}
+                      onChange={handleChange}
+                      placeholder="https://..."
+                      className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Note (Opzionale)
+                    </label>
+                    <textarea
+                      name="notes"
+                      value={formData.notes}
+                      onChange={handleChange}
+                      rows="2"
+                      placeholder="Es. Tieni le spalle basse..."
+                      className="w-full bg-dark text-white rounded-xl p-3 border border-slate-700 focus:border-accent focus:outline-none"
+                    ></textarea>
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full bg-accent text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-95 transition-transform"
+                    >
+                      Salva Esercizio
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
